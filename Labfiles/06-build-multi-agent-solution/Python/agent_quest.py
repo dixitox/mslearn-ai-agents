@@ -1,6 +1,11 @@
 import os
 from dotenv import load_dotenv
 # Add references
+from azure.ai.agents import AgentsClient
+from azure.ai.agents.models import ConnectedAgentTool, MessageRole, ListSortOrder
+from azure.identity import AzureCliCredential
+credential = AzureCliCredential()
+
 
 
 # Clear the console
@@ -49,36 +54,90 @@ warrior_instructions = """
     Examples of situations you respond to: ambushes, enemy attacks, broken doors, carrying heavy objects, or preparing for battle.
 """
 
+
+# Initialize the Azure Agents client
+agents_client = AgentsClient(endpoint=project_endpoint, credential=credential)
+
 # Connect to the agents client
-
-
 with agents_client:
 
     # Create the healer agent on the Azure AI agent service
+    healer_agent = agents_client.create_agent(
+        model=model_deployment,
+        name=healer_agent_name,
+        instructions=healer_instructions
+    )
 
 
     # Create a connected agent tool for the healer agent
+    healer_agent_tool = ConnectedAgentTool(
+        id=healer_agent.id, 
+        name=healer_agent_name, 
+        description="Responsible for healing party members and addressing injuries."
+    )
 
 
     # Create the scout agent and connected tool
+    scout_agent = agents_client.create_agent(
+        model=model_deployment,
+        name=scout_agent_name,
+        instructions=scout_instructions
+    )
+    scout_agent_tool = ConnectedAgentTool(
+        id=scout_agent.id, 
+        name=scout_agent_name, 
+        description="Goes ahead of the main party to perform reconnaissance."
+    )
 
 
     # Create the warrior agent and connected tool
+    warrior_agent = agents_client.create_agent(
+        model=model_deployment,
+        name=warrior_agent_name,
+        instructions=warrior_instructions
+    )
+    warrior_agent_tool = ConnectedAgentTool(
+        id=warrior_agent.id, 
+        name=warrior_agent_name, 
+        description="Responds to combat or physical challenges."
+    )
 
 
     # Create a main agent with the Connected Agent tools
+    agent = agents_client.create_agent(
+        model=model_deployment,
+        name="quest_master",
+        instructions="""
+            You are the Questmaster, the intelligent guide of a three-member adventuring party exploring a short dungeon. 
+            Based on the scenario, delegate tasks to the appropriate party member. The current party members are: Warrior, Scout, Healer.
+            Only include the party member's response, do not provide an analysis or summary.
+        """,
+        tools=[
+            healer_agent_tool.definitions[0],
+            scout_agent_tool.definitions[0],
+            warrior_agent_tool.definitions[0]
+        ]
+    )
 
 
     # Create thread for the chat session
+    print("Creating agent thread.")
+    thread = agents_client.threads.create()
 
 
     # Create the quest prompt
-
+    prompt = "We find a locked door with strange symbols, and the warrior is limping."
 
     # Send a prompt to the agent
-
+    message = agents_client.messages.create(
+        thread_id=thread.id,
+        role=MessageRole.USER,
+        content=prompt,
+    )
 
     # Create and process Agent run in thread with tools
+    print("Processing agent thread. Please wait.")
+    run = agents_client.runs.create_and_process(thread_id=thread.id, agent_id=agent.id)
 
 
     if run.status == "failed":
@@ -90,7 +149,7 @@ with agents_client:
         if message.text_messages:
             last_msg = message.text_messages[-1]
             print(f"{message.role}:\n{last_msg.text.value}\n")
-    
+
     # Delete the Agent when done
     print("Cleaning up agents:")
     agents_client.delete_agent(agent.id)
